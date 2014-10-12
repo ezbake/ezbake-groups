@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--   Copyright (C) 2013-2014 Computer Sciences Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License. -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>ezbake</groupId>
+        <artifactId>ezbake-groups</artifactId>
+        <version>0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ezbake-groups-service</artifactId>
+
+    <dependencies>
+
+        <!-- Inter-project Dependencies -->
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-groups-common</artifactId>
+            <version>${project.parent.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-groups-graph</artifactId>
+            <version>${project.parent.version}</version>
+        </dependency>
+
+        <!-- Thrift Definitions -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-base-thrift</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-base-thrift-service</artifactId>
+        </dependency>
+
+        <!-- EzBake -->
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>thrift-utils</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-security-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-security-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-configuration-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbakehelpers</groupId>
+            <artifactId>ezbakehelpers-ezconfigurationhelpers</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>ezbake-audit-auditlogger</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-client</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+
+        <!-- Tinkerpop -->
+        <dependency>
+            <groupId>com.tinkerpop.blueprints</groupId>
+            <artifactId>blueprints-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tinkerpop</groupId>
+            <artifactId>frames</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tinkerpop.gremlin</groupId>
+            <artifactId>gremlin-java</artifactId>
+        </dependency>
+
+        <!-- Titan -->
+        <dependency>
+            <groupId>com.thinkaurelius.titan</groupId>
+            <artifactId>titan-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.thinkaurelius.titan</groupId>
+            <artifactId>titan-accumulo-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.thinkaurelius.titan</groupId>
+            <artifactId>titan-berkeleyje</artifactId>
+        </dependency>
+
+        <!-- Dependency injection -->
+        <dependency>
+            <groupId>com.google.inject</groupId>
+            <artifactId>guice</artifactId>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>test-utils</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ezbake</groupId>
+            <artifactId>local-zookeeper</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>redis.embedded</groupId>
+            <artifactId>embedded-redis</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.2</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>thrift-runnable</shadedClassifierName>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                                <filter>
+                                    <!-- Exclude hadoop log4j.properties -->
+                                    <artifact>org.apache.hadoop:*</artifact>
+                                    <excludes>
+                                        <exclude>log4j.properties</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
