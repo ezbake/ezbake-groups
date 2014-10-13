@@ -804,6 +804,8 @@ public class EzGroupsGraph implements Closeable {
 
         User user = u.next();
         assignEdges(user.asVertex(), group.asVertex(), dataAcces, adminRead, adminWrite, adminManage, adminCreateChild);
+
+        graph.commit();
     }
 
 

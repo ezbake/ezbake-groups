@@ -541,7 +541,7 @@ public class EzGroupsServiceTest {
 
 
     @Test
-    public void testDeleteAppUser() throws TException, VertexNotFoundException {
+     public void testDeleteAppUser() throws TException, VertexNotFoundException {
         String securityId = "GIMML";
         service.createAppUser(adminToken, securityId, "GIMML");
 
@@ -569,6 +569,33 @@ public class EzGroupsServiceTest {
                 .getGroup(new GroupNameHelper().getNamespacedAppAccessGroup("_DELETED_APP_" + securityId));
     }
 
+    @Test
+    public void testDeleteAppUserByAdmin() throws TException, VertexNotFoundException {
+        String securityId = "GIMML";
+        service.createAppUser(adminToken, securityId, securityId);
+
+        // Add an admin
+        String user = "Hershel";
+        service.createUser(adminToken, user, null);
+        service.addUserToGroup(adminToken, new GroupNameHelper().getNamespacedAppGroup(securityId), user,
+                new UserGroupPermissions().setDataAccess(true).setAdminManage(true));
+
+        service.deleteAppUser(MockEzSecurityToken.getMockUserToken(user), securityId);
+
+        // Make sure user does not exists
+        Iterator<Vertex> iv = service.getGraph().getGraph().query()
+                .has(User.PRINCIPAL, securityId)
+                .limit(1)
+                .vertices().iterator();
+        Assert.assertFalse(iv.hasNext());
+
+
+        // Lookup the renamed app groups
+        Group appGroup = service.getGraph()
+                .getGroup(new GroupNameHelper().getNamespacedAppGroup("_DELETED_APP_" + securityId));
+        Group accessGroup = service.getGraph()
+                .getGroup(new GroupNameHelper().getNamespacedAppAccessGroup("_DELETED_APP_" + securityId));
+    }
 
     /******************          Create Group Tests              *************************/
     @Test
@@ -1001,6 +1028,34 @@ public class EzGroupsServiceTest {
         userToken = MockEzSecurityToken.getMockUserToken(userId2, "",
                 Collections.<String>emptySet(), Collections.<String, List<String>>emptyMap(), false);
         service.addUserToGroup(userToken, groupName1, userId3, new UserGroupPermissions());
+    }
+
+    @Test
+    public void addUsersRequiresWorksWithAdminWrite() throws TException {
+        // Create users
+        String userId1 = "Bryan";
+        String userId2 = "Ryan";
+        String userId3 = "Cyan";
+        service.createUser(adminToken, userId1, "");
+        service.createUser(adminToken, userId2, "");
+        service.createUser(adminToken, userId3, "");
+
+        // user 1 create some groups
+        String groupName1 = "Jeff's Group";
+        EzSecurityToken userToken1 = MockEzSecurityToken.getMockUserToken(userId1, "",
+                Collections.<String>emptySet(), Collections.<String, List<String>>emptyMap(), false);
+        service.createGroup(userToken1, null, groupName1, new GroupInheritancePermissions());
+
+        // Add one user to it
+        service.addUserToGroup(userToken1, groupName1, userId2, new UserGroupPermissions().setAdminWrite(true));
+
+        // second user try to add a third
+        EzSecurityToken userToken2 = MockEzSecurityToken.getMockUserToken(userId2, "",
+                Collections.<String>emptySet(), Collections.<String, List<String>>emptyMap(), false);
+        service.addUserToGroup(userToken2, groupName1, userId3, new UserGroupPermissions());
+
+        AllGroupMembers members = service.getGroupMembers(userToken1, groupName1, true);
+        System.out.println(members);
     }
 
     @Test(expected=AuthorizationException.class)
@@ -1670,7 +1725,7 @@ public class EzGroupsServiceTest {
         EzSecurityToken adminToken = MockEzSecurityToken.getMockUserToken(false);
         service.deactivateAppUser(adminToken, "Doesn't Matter");
     }
-    @Test(expected=EzSecurityTokenException.class)
+    @Test(expected=EzGroupOperationException.class)
     public void testDeleteAppUserNotAdmin() throws TException {
         EzSecurityToken adminToken = MockEzSecurityToken.getMockUserToken(false);
         service.deleteAppUser(adminToken, "Doesn't Matter");

@@ -25,6 +25,7 @@ import ezbake.groups.common.GroupNameHelper;
 import ezbake.groups.graph.EzGroupsGraph;
 import ezbake.groups.graph.EzGroupsGraphModule;
 import ezbake.groups.graph.UserGroupPermissionsWrapper;
+import ezbake.groups.graph.api.EzGroupGraphOperations;
 import ezbake.groups.graph.exception.*;
 import ezbake.groups.graph.frames.edge.BaseEdge;
 import ezbake.groups.graph.frames.vertex.BaseVertex;
@@ -34,6 +35,7 @@ import ezbake.groups.graph.query.SpecialAppGroupQuery;
 import ezbake.groups.thrift.*;
 import ezbake.security.client.EzSecurityTokenWrapper;
 import ezbake.security.client.EzbakeSecurityClient;
+import ezbake.security.common.core.EzSecurityTokenUtils;
 import ezbake.security.common.core.SecurityID;
 import ezbake.thrift.authentication.EzX509;
 import ezbake.thrift.authentication.ThriftPeerUnavailableException;
@@ -422,14 +424,33 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
     }
 
     @Override
-    public void modifyAppUser(EzSecurityToken ezSecurityToken, String securityID, String newSecurityID, String newName) throws TException {
-        validateToken(ezSecurityToken, true);
+    public void modifyAppUser(EzSecurityToken ezSecurityToken, String securityId, String newSecurityID, String newName) throws EzSecurityTokenException, AuthorizationException, EzGroupOperationException {
+        validateToken(ezSecurityToken);
         AuditEvent event = new AuditEvent(AuditEventType.UserGroupMgmtModify, ezSecurityToken)
-                .arg("change user principal", securityID)
+                .arg("change user principal", securityId)
                 .arg("to new principal", newSecurityID)
                 .arg("New name", newName);
         try {
-            modifyUserOfType(BaseVertex.VertexType.APP_USER, securityID, newSecurityID, newName);
+            // If not an admin, must have admin manage access to the app group
+            if (!EzSecurityTokenUtils.isEzAdmin(ezSecurityToken)) {
+                // Query for app_user to determine app name
+                User app;
+                try {
+                    app = getUser(BaseVertex.VertexType.APP_USER, securityId);
+                } catch (UserNotFoundException e) {
+                    throw new EzGroupOperationException("No app found with security id: " + securityId,
+                            OperationError.USER_NOT_FOUND);
+                }
+
+                String appGroup = nameHelper.getNamespacedAppGroup(app.getName());
+                ensureUserHasAdminGroup(
+                        userTypeFromToken(ezSecurityToken),
+                        ezSecurityToken.getTokenPrincipal().getPrincipal(),
+                        appGroup,
+                        BaseEdge.EdgeType.A_MANAGE,
+                        false);
+            }
+            modifyUserOfType(BaseVertex.VertexType.APP_USER, securityId, newSecurityID, newName);
         } catch (Exception e) {
             event.arg("error", e.getMessage());
             event.failed();
@@ -475,13 +496,12 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
     }
 
     @Override
-    public void deleteAppUser(EzSecurityToken ezSecurityToken, String securityId) throws TException {
-        validateToken(ezSecurityToken, true);
+    public void deleteAppUser(EzSecurityToken ezSecurityToken, String securityId) throws EzSecurityTokenException, AuthorizationException, EzGroupOperationException {
+        validateToken(ezSecurityToken);
 
         AuditEvent event = new AuditEvent(AuditEventType.UserGroupMgmtDelete, ezSecurityToken)
                 .arg("delete app user", securityId);
         try {
-
             // First rename the app user, which will rename all of the app groups that were created for it
             modifyAppUser(ezSecurityToken, securityId, securityId, "_DELETED_APP_"+securityId);
 
@@ -841,7 +861,8 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
                 .arg("with permissions", permissions);
         try {
             // First need to check the actors permissions on the group
-            boolean privileged = isPrivilegedPeer(new EzX509(), SecurityID.ReservedSecurityId.INS_REG);
+            boolean privileged = EzSecurityTokenUtils.isEzAdmin(ezSecurityToken) &&
+                    isPrivilegedPeer(new EzX509(), SecurityID.ReservedSecurityId.INS_REG);
             ensureUserHasAdminGroup(userTypeFromToken(ezSecurityToken), principal, realGroupName,
                     BaseEdge.EdgeType.A_WRITE, privileged);
 
@@ -895,7 +916,8 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
             // First need to check the actors permissions on the group
             String principal = ezSecurityToken.getTokenPrincipal().getPrincipal();
 
-            boolean privileged = isPrivilegedPeer(new EzX509(), SecurityID.ReservedSecurityId.INS_REG);
+            boolean privileged = EzSecurityTokenUtils.isEzAdmin(ezSecurityToken) &&
+                    isPrivilegedPeer(new EzX509(), SecurityID.ReservedSecurityId.INS_REG);
             ensureUserHasAdminGroup(userTypeFromToken(ezSecurityToken), principal, realGroupName,
                     BaseEdge.EdgeType.A_WRITE, privileged);
 
@@ -909,6 +931,12 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
             logger.error("No group found. Cannot add user to {}", groupName);
             throw new EzGroupOperationException("No group found for name: " + groupName,
                     OperationError.GROUP_NOT_FOUND);
+        } catch (InvalidVertexTypeException e) {
+            event.arg("Invalid vertex type", userTypeFromToken(ezSecurityToken));
+            event.failed();
+            logger.error("Invalid vertex type, this should not happen");
+            throw new EzGroupOperationException("Unable to add users to groupsat this time",
+                    OperationError.UNRECOVERABLE_ERROR);
         } catch (UserNotFoundException e) {
             // Create the user now, and then add them
             logger.info("User being added does not exist. Creating the user, and then reattempting to add");
@@ -939,18 +967,14 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
                 throw new EzGroupOperationException("Unable to create users at this time. No ID available",
                         OperationError.INDEX_UNAVAILABLE);
             } catch (VertexNotFoundException e1) {
-                event.arg("Group not found", groupName);
-                event.failed();
+                addUserEvent.arg("Group not found", groupName);
+                addUserEvent.failed();
                 logger.error("No group found. Cannot add user to {}", groupName);
                 throw new EzGroupOperationException("No group found for name: " + groupName,
                         OperationError.GROUP_NOT_FOUND);
             } finally {
                 auditLogger.logEvent(addUserEvent);
             }
-        } catch (InvalidVertexTypeException e) {
-            logger.error("Invalid vertex type, this should not happen");
-            throw new EzGroupOperationException("Unable to add users to groupsat this time",
-                    OperationError.UNRECOVERABLE_ERROR);
         } finally {
             auditLogger.logEvent(event);
         }
@@ -1321,12 +1345,10 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
         String err = null;
         try {
             if (!graph.userPermissionsOnGroup(userType, userId, groupName).contains(adminType)) {
-                err = userId + " cannot add other users to "+nameHelper.removeRootGroupPrefix(groupName)+
-                        ". user does not have permission";
+                err = userId+" does not have the required permission on: "+nameHelper.removeRootGroupPrefix(groupName);
             }
         } catch (UserNotFoundException|VertexNotFoundException e) {
-            err = userId + " cannot add other users to "+nameHelper.removeRootGroupPrefix(groupName) + " : " +
-                    e.getMessage();
+            err = "user: " + userId + " does not exist. " + e.getMessage();
         }
 
         if (err != null && !privileged) {
@@ -1458,6 +1480,18 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
         members.setApps(appPrincipals);
         members.setUsers(userPrincipals);
         return members;
+    }
+
+    private User getTokenSubject(EzSecurityToken token) throws UserNotFoundException {
+        return getUser(userTypeFromToken(token), token.getTokenPrincipal().getPrincipal());
+    }
+    private User getUser(BaseVertex.VertexType type, String principal) throws UserNotFoundException {
+        try {
+            return graph.getUser(type, principal);
+        } catch (InvalidVertexTypeException e) {
+            throw new UserNotFoundException("User was of invalid user type", e);
+        }
+
     }
 
     private Set<Group> getUserGroups(BaseVertex.VertexType type, String id, boolean includeInactive) throws GroupQueryException {

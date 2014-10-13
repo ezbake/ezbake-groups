@@ -14,14 +14,26 @@
 
 package ezbake.groups.cli.commands;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.thinkaurelius.titan.core.TitanGraph;
+import com.tinkerpop.blueprints.Vertex;
+import com.tinkerpop.frames.FramedGraph;
+import com.tinkerpop.gremlin.java.GremlinPipeline;
+import com.tinkerpop.pipes.PipeFunction;
+import com.tinkerpop.pipes.branch.LoopPipe;
 import ezbake.configuration.EzConfigurationLoaderException;
 import ezbake.groups.graph.EzGroupsGraph;
 import ezbake.groups.graph.exception.UserNotFoundException;
 import ezbake.groups.graph.exception.VertexNotFoundException;
+import ezbake.groups.graph.frames.edge.BaseEdge;
+import ezbake.groups.graph.frames.vertex.BaseVertex;
+import ezbake.groups.graph.frames.vertex.Group;
 import ezbake.groups.graph.frames.vertex.User;
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
@@ -46,14 +58,44 @@ public class GetGroupUsersCommand extends GroupCommand {
 
         String internalName = nameHelper.addRootGroupPrefix(groupName);
         try {
-            Set<User> users = graph.groupMembers(userType(), user, internalName, true, true, false);
+            Group group = graph.getGroup(internalName);
+
+            List<String> edges = Lists.newArrayList();
+            for (BaseEdge.EdgeType edge : BaseEdge.EdgeType.values()) {
+                edges.add(edge.toString());
+            }
+
+            GremlinPipeline<Object, Vertex> pipe = new GremlinPipeline<>(group.asVertex())
+                    .as("group_member_traversal")
+                    .inE(edges.toArray(new String[edges.size()]))
+                    .outV()
+                    .loop("group_member_traversal", new PipeFunction<LoopPipe.LoopBundle<Vertex>, Boolean>() {
+                        @Override
+                        public Boolean compute(LoopPipe.LoopBundle<Vertex> vertexLoopBundle) {
+                            return true;
+                        }
+                    }, new PipeFunction<LoopPipe.LoopBundle<Vertex>, Boolean>() {
+                        @Override
+                        public Boolean compute(LoopPipe.LoopBundle<Vertex> vertexLoopBundle) {
+                            boolean isUser = BaseVertex.VertexType.USER.toString().equals(vertexLoopBundle.getObject().getProperty(BaseVertex.TYPE));
+                            boolean isApp = BaseVertex.VertexType.APP_USER.toString().equals(vertexLoopBundle.getObject().getProperty(BaseVertex.TYPE));
+                            return isUser || isApp;
+                        }
+                    }).dedup();
+
+            Set<User> users = Sets.newHashSet();
+            FramedGraph<TitanGraph> framedGraph = graph.getFramedGraph();
+            while(pipe.hasNext()) {
+                User member = framedGraph.frame(pipe.next(), User.class);
+                users.add(member);
+            }
 
             System.out.println("Group members for group: " + groupName);
             for (User user : users) {
                 System.out.println("User principal: " + user.getPrincipal() + ", name: " + user.getName());
             }
 
-        } catch (VertexNotFoundException | UserNotFoundException e) {
+        } catch (VertexNotFoundException e) {
             System.err.println("Unable to get group members: " + e.getMessage());
         } finally {
             try {
