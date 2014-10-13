@@ -1273,13 +1273,16 @@ public class EzGroupsService extends EzBakeBaseThriftService implements EzGroups
 
     protected static final String X509_RESTRICT = "ezbake.groups.service.x509.restrict";
     private boolean isPrivilegedPeer(EzX509 peer, SecurityID.ReservedSecurityId ...requiredPeers) {
-        boolean privileged = false;
+        boolean privileged;
         if (ezProperties.getBoolean(X509_RESTRICT, true)) {
             try {
                 privileged = isPrivilegedPeer(peer.getPeerSecurityID(), requiredPeers);
             } catch (ThriftPeerUnavailableException e) {
                 privileged = false;
             }
+        } else {
+            // Not restricting based on x509 certificates, let them through
+            privileged = true;
         }
         return privileged;
     }
